@@ -62,7 +62,7 @@ def make_env(env_name, idx, capture_video, run_name):
 if __name__ == "__main__":
     # Create environment and experiment setup
     args = tyro.cli(Args)
-    run_name = f"{args.env_name}__{args.exp_name}__{args.seed}__{int(time.time())}"
+    run_name = f"{args.env_name}_{args.exp_name}_{args.seed}_{int(time.time())}"
     writer = SummaryWriter(f"runs/{run_name}")
     writer.add_text(
         "hyperparameters",
