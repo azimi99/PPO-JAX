@@ -241,7 +241,6 @@ if __name__ == "__main__":
                 actor_state = actor_state.apply_gradients(grads=actor_grad)
             if args.target_kl is not None and approx_kl > args.target_kl:
                 break
-        # TRY NOT TO MODIFY: record rewards for plotting purposes
        
         writer.add_scalar("losses/critic_loss", critic_loss.item(), global_step)
         writer.add_scalar("losses/policy_loss", actor_loss.item(), global_step)
@@ -250,7 +249,7 @@ if __name__ == "__main__":
         pbar.update(1)
         pbar.set_postfix(SPS=int(global_step / (time.time() - start_time)))
         writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
-            
+    pbar.close()     
     envs.close()
     writer.close()    
    
