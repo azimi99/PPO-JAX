@@ -8,7 +8,7 @@ Here are some Gymnasium environments with continuous observation spaces and disc
 ## Results
 Check out our experiment results and interactive visualizations below:
 
-<iframe src="https://wandb.ai/azimi/ppo%20jax/reports/JAX-PPO-Results--VmlldzoxMzYzNzMzMg" style="border:none;height:1024px;width:100%">
+[Experiment Report & Visualizations](https://api.wandb.ai/links/azimi/izj0gno5)
 
 ## Technical Writeup
 
