@@ -25,6 +25,9 @@ from torch.utils.tensorboard import SummaryWriter
 from agent import Actor, Critic
 from tqdm import tqdm
 
+import shutil
+
+
 def create_train_state(rng, model, obs_shape, learning_rate, max_grad_norm, num_iterations):
     params = model.init(rng, jnp.ones(obs_shape))
 
@@ -62,7 +65,22 @@ def make_env(env_name, idx, capture_video, run_name):
 if __name__ == "__main__":
     # Create environment and experiment setup
     args = tyro.cli(Args)
-    run_name = f"{args.env_name}_{args.exp_name}_{args.seed}_{int(time.time())}"
+    run_name = f"{args.env_name}_seed_{args.seed}"
+    if os.path.exists(f"runs/{run_name}"):
+        shutil.rmtree(f"runs/{run_name}")
+    if os.path.exists(f"videos/{run_name}"):
+        shutil.rmtree(f"videos/{run_name}")
+
+    if args.track:
+        import wandb
+
+        wandb.init(
+            project=args.wandb_project_name,
+            entity=args.wandb_entity,
+            sync_tensorboard=True,
+            config=vars(args),
+            name=run_name,
+        )
     writer = SummaryWriter(f"runs/{run_name}")
     writer.add_text(
         "hyperparameters",
@@ -209,7 +227,7 @@ if __name__ == "__main__":
                 args.gamma * args.gae_lambda * mask * last_gae_lambda        
             advantages = advantages.at[t].set(last_gae_lambda)
         returns = advantages + values
-        
+
         
         # flatten rollout values for batching
         b_obs = obs.reshape((-1,) + envs.single_observation_space.shape)
@@ -244,13 +262,24 @@ if __name__ == "__main__":
        
         writer.add_scalar("losses/critic_loss", critic_loss.item(), global_step)
         writer.add_scalar("losses/policy_loss", actor_loss.item(), global_step)
+        writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
+        writer.add_scalar("charts/returns", returns.mean().item(), global_step)
         if iteration == 1:
             pbar = tqdm(total=args.num_iterations, desc="Training Progress")
         pbar.update(1)
         pbar.set_postfix(SPS=int(global_step / (time.time() - start_time)))
         writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+        if args.capture_video and args.track:
+            video_dir = f"videos/{run_name}"
+            if os.path.exists(video_dir):
+                video_files = [f for f in os.listdir(video_dir) if f.endswith(".mp4")]
+                for video_file in video_files:
+                    wandb.log({"video": wandb.Video(os.path.join(video_dir, video_file), format="mp4")}, step=global_step)
+        
     pbar.close()     
     envs.close()
+    if args.track:
+        wandb.finish()
     writer.close()    
    
         

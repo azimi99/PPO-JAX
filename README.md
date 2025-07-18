@@ -5,10 +5,14 @@ Here are some Gymnasium environments with continuous observation spaces and disc
 - `MountainCar-v0`
 - `Acrobot-v1`
 - `LunarLander-v3`
+## Results
+Check out our experiment results and interactive visualizations below:
 
+<iframe src="https://wandb.ai/azimi/ppo%20jax/reports/JAX-PPO-Results--VmlldzoxMzYzNzMzMg" style="border:none;height:1024px;width:100%">
 
-Coming soon: Results
-Coming soon: technical writeup
+## Technical Writeup
+
+A detailed technical writeup is coming soon.
 
 Cheers!
 
