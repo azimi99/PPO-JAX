@@ -12,7 +12,6 @@ import jax.numpy as jnp
 from jax import jit, value_and_grad
 
 # Flax for model and state
-from flax import linen as nn
 from flax.training import train_state
 
 # Optax for optimization
@@ -102,12 +101,12 @@ if __name__ == "__main__":
     args.num_iterations = args.total_timesteps // args.batch_size # e.g. 500_000 // 512 = 976
     
     # rollout values
-    obs = jnp.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape)
-    actions = jnp.zeros((args.num_steps, args.num_envs) + envs.single_action_space.shape)
-    logprobs = jnp.zeros((args.num_steps, args.num_envs))
-    rewards = jnp.zeros((args.num_steps, args.num_envs))
-    dones = jnp.zeros((args.num_steps, args.num_envs))
-    values = jnp.zeros((args.num_steps, args.num_envs))
+    obs = np.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape)
+    actions = np.zeros((args.num_steps, args.num_envs) + envs.single_action_space.shape)
+    logprobs = np.zeros((args.num_steps, args.num_envs))
+    rewards = np.zeros((args.num_steps, args.num_envs))
+    dones = np.zeros((args.num_steps, args.num_envs))
+    values = np.zeros((args.num_steps, args.num_envs))
     
     
     
@@ -135,71 +134,88 @@ if __name__ == "__main__":
         max_grad_norm=args.max_grad_norm
     )
     
-    # TRAINING LOOP
-    global_step = 0
-    start_time = time.time()
-    next_obs, _ = envs.reset(seed=args.seed)
-    next_done = jnp.zeros(args.num_envs)
     
-
-    @jit
     def value_fn(params, obs):
         value = jax.vmap(
                 lambda x: critic_state.apply_fn(params, x))(obs)
         return value
 
-    @jit
+    
     def policy_fn(params, obs):
         return jax.vmap(lambda x: actor_state.apply_fn(params, x))(obs)
     
-    @jit
-    def actor_loss_fn(params, obs_batch, action, old_logprobs, advantages):
-        logits = policy_fn(params, obs_batch)
-        log_probs = jax.nn.log_softmax(logits)
-        probs = jax.nn.softmax(logits)
-        action = action.astype(jnp.int32)
-        new_selected_log_prob = jnp.take_along_axis(log_probs, action[:, None], axis=1).squeeze(-1)
-        entropy = -jnp.sum(probs * log_probs, axis=-1)
-        log_ratio = new_selected_log_prob - old_logprobs
-        ratio = jnp.exp(log_ratio)
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-        pg_loss1 = advantages * ratio
-        pg_loss2 = advantages * jnp.clip(ratio, 1 - args.clip_coef, 1 + args.clip_coef)
-        pg_loss = jnp.minimum(pg_loss1, pg_loss2).mean()
-        entropy_loss = entropy.mean()
-        approx_kl = ((ratio - 1.0) - log_ratio).mean()
-        return -(pg_loss - args.ent_coef * entropy_loss), approx_kl  # negative for gradient ascent
+    rollout_value_fn = jax.jit(value_fn)
+    rollout_policy_fn = jax.jit(policy_fn)
+ 
+       
     
     @jit
-    def critic_loss_fn(params, obs_batch, returns):
-        value = value_fn(params, obs_batch)
-        v_loss = 0.5 * ((value - returns) ** 2).mean()
-        return v_loss
+    def train_step(actor_state, critic_state, rollout):
+        (mb_obs, mb_actions, mb_logprobs, mb_advantages, mb_returns) = rollout
+            
+        def actor_loss_fn(params, obs_batch, action, old_logprobs, advantages):
+            logits = policy_fn(params, obs_batch)
+            log_probs = jax.nn.log_softmax(logits)
+            probs = jax.nn.softmax(logits)
+            action = action.astype(jnp.int32)
+            new_selected_log_prob = jnp.take_along_axis(log_probs, action[:, None], axis=1).squeeze(-1)
+            entropy = -jnp.sum(probs * log_probs, axis=-1)
+            log_ratio = new_selected_log_prob - old_logprobs
+            ratio = jnp.exp(log_ratio)
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+            pg_loss1 = advantages * ratio
+            pg_loss2 = advantages * jnp.clip(ratio, 1 - args.clip_coef, 1 + args.clip_coef)
+            pg_loss = jnp.minimum(pg_loss1, pg_loss2).mean()
+            entropy_loss = entropy.mean()
+            approx_kl = ((ratio - 1.0) - log_ratio).mean()
+            return -(pg_loss - args.ent_coef * entropy_loss), approx_kl  # negative for gradient ascent
+        
+    
+        def critic_loss_fn(params, obs_batch, returns):
+            value = value_fn(params, obs_batch)
+            v_loss = 0.5 * ((value - returns) ** 2).mean()
+            return v_loss
+        
+        (actor_loss, approx_kl), actor_grad =\
+            value_and_grad(actor_loss_fn, has_aux=True)(actor_state.params, mb_obs, mb_actions, mb_logprobs, mb_advantages)
+        critic_loss, critic_grad = \
+            value_and_grad(critic_loss_fn)(critic_state.params, mb_obs, mb_returns)
+        # Update states
+        critic_state = critic_state.apply_gradients(grads=critic_grad)
+        actor_state = actor_state.apply_gradients(grads=actor_grad)
+        return actor_state, critic_state, actor_loss, critic_loss, approx_kl
+        
+        
+    # TRAINING LOOP
+    global_step = 0
+    start_time = time.time()
+    next_obs, _ = envs.reset(seed=args.seed)
+    next_done = jnp.zeros(args.num_envs)
+        
     
     for iteration in range(1, args.num_iterations + 1):
         
-        
         for step in range(0, args.num_steps):
             global_step += args.num_envs
-            obs = obs.at[step].set(next_obs)
-            dones = dones.at[step].set(next_done)
+            obs[step] = next_obs
+            dones[step] = next_done
             
             ## calculate actions and values for each step
-            value = value_fn(critic_state.params, next_obs) # calculate state values accross environments
-            logits = policy_fn(actor_state.params, next_obs)
+            value = rollout_value_fn(critic_state.params, next_obs) # calculate state values accross environments
+            logits = rollout_policy_fn(actor_state.params, next_obs)
             rng, action_key = jax.random.split(rng)
             action = jax.random.categorical(action_key, logits)
             step_log_probs = jax.nn.log_softmax(logits)
             selected_log_prob = jnp.take_along_axis(step_log_probs, action[:, None], axis=1).squeeze(-1)
             
-            actions = actions.at[step].set(action)
-            logprobs = logprobs.at[step].set(selected_log_prob)
-            values = values.at[step].set(value)
+            actions[step] = action
+            logprobs[step] = selected_log_prob
+            values[step] = value
             
             
             next_obs, reward, terminations, truncations, infos = envs.step(np.array(action))
             next_done = jnp.logical_or(terminations, truncations)
-            rewards = rewards.at[step].set(reward)
+            rewards[step] = reward
             
             if "final_info" in infos:
                 for info in infos["final_info"]:
@@ -208,7 +224,7 @@ if __name__ == "__main__":
                         writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
                         writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
         next_value = value_fn(critic_state.params, next_obs)
-        advantages = jnp.zeros_like(rewards)
+        advantages = np.zeros_like(rewards)
         last_gae_lambda = 0
         
         for t in reversed(range(args.num_steps)):
@@ -225,7 +241,7 @@ if __name__ == "__main__":
                     values[t]
             last_gae_lambda = td_error +\
                 args.gamma * args.gae_lambda * mask * last_gae_lambda        
-            advantages = advantages.at[t].set(last_gae_lambda)
+            advantages[t] = last_gae_lambda
         returns = advantages + values
 
         
@@ -252,11 +268,9 @@ if __name__ == "__main__":
                 mb_logprobs = b_logprobs[mb_inds]
                 mb_advantages = b_advantages[mb_inds]
                 mb_returns = b_returns[mb_inds]
-                (actor_loss, approx_kl), actor_grad = value_and_grad(actor_loss_fn, has_aux=True)(actor_state.params, mb_obs, mb_actions, mb_logprobs, mb_advantages)
-                critic_loss, critic_grad = value_and_grad(critic_loss_fn)(critic_state.params, mb_obs, mb_returns)
-                # Update states
-                critic_state = critic_state.apply_gradients(grads=critic_grad)
-                actor_state = actor_state.apply_gradients(grads=actor_grad)
+                actor_state, critic_state, actor_loss, critic_loss, approx_kl =\
+                    train_step(actor_state, critic_state,\
+                        (mb_obs, mb_actions, mb_logprobs, mb_advantages, mb_returns))
             if args.target_kl is not None and approx_kl > args.target_kl:
                 break
        
