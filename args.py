@@ -2,16 +2,12 @@
 import os
 from dataclasses import dataclass
 @dataclass
-# This configuration structure is taken from by the CleanRL library (https://github.com/vwxyzjn/cleanrl)
+# This Args structure is taken from the CleanRL library (https://github.com/vwxyzjn/cleanrl)
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
     """the name of this experiment"""
     seed: int = 1
     """seed of the experiment"""
-    torch_deterministic: bool = True
-    """if toggled, `torch.backends.cudnn.deterministic=False`"""
-    cuda: bool = True
-    """if toggled, cuda will be enabled by default"""
     track: bool = False
     """if toggled, this experiment will be tracked with Weights and Biases"""
     wandb_project_name: str = "ppo jax"
@@ -19,21 +15,19 @@ class Args:
     wandb_entity: str = None
     """the entity (team) of wandb's project"""
     capture_video: bool = False
-    """whether to capture videos of the agent performances (check out `videos` folder)"""
+    """capture environment videos"""
 
     # Algorithm specific arguments
     env_name: str = "CartPole-v1"
     """the id of the environment"""
     total_timesteps: int = 500000
     """total timesteps of the experiments"""
-    learning_rate: float = 5e-4
+    learning_rate: float = 3e-4
     """the learning rate of the optimizer"""
     num_envs: int = 1
     """the number of parallel game environments"""
     num_steps: int = 128
     """the number of steps to run in each environment per policy rollout"""
-    anneal_lr: bool = True
-    """Toggle learning rate annealing for policy and value networks"""
     gamma: float = 0.99
     """the discount factor gamma"""
     gae_lambda: float = 0.95
@@ -57,7 +51,7 @@ class Args:
     target_kl: float = None
     """the target KL divergence threshold"""
 
-    # to be filled in runtime
+    
     batch_size: int = 0
     """the batch size (computed in runtime)"""
     minibatch_size: int = 0

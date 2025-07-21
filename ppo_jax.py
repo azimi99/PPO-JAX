@@ -144,9 +144,15 @@ if __name__ == "__main__":
     def policy_fn(params, obs):
         return jax.vmap(lambda x: actor_state.apply_fn(params, x))(obs)
     
-    rollout_value_fn = jax.jit(value_fn)
-    rollout_policy_fn = jax.jit(policy_fn)
- 
+    @jit
+    def calculate_rollout_statistics(actor_state, critic_state, next_obs, rng):
+        value = value_fn(critic_state.params, next_obs) # calculate state values accross environments
+        logits = policy_fn(actor_state.params, next_obs)
+        rng, action_key = jax.random.split(rng)
+        action = jax.random.categorical(action_key, logits)
+        step_log_probs = jax.nn.log_softmax(logits)
+        selected_log_prob = jnp.take_along_axis(step_log_probs, action[:, None], axis=1).squeeze(-1)
+        return action, value, selected_log_prob, rng
        
     
     @jit
@@ -162,7 +168,8 @@ if __name__ == "__main__":
             entropy = -jnp.sum(probs * log_probs, axis=-1)
             log_ratio = new_selected_log_prob - old_logprobs
             ratio = jnp.exp(log_ratio)
-            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+            if args.norm_adv:
+                advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
             pg_loss1 = advantages * ratio
             pg_loss2 = advantages * jnp.clip(ratio, 1 - args.clip_coef, 1 + args.clip_coef)
             pg_loss = jnp.minimum(pg_loss1, pg_loss2).mean()
@@ -173,8 +180,13 @@ if __name__ == "__main__":
     
         def critic_loss_fn(params, obs_batch, returns):
             value = value_fn(params, obs_batch)
-            v_loss = 0.5 * ((value - returns) ** 2).mean()
-            return v_loss
+            
+            v_loss = ((value - returns) ** 2)
+            if args.clip_vloss:
+                v_loss_clipped = jnp.clip(v_loss, -args.clip_coef, args.clip_coef)
+                v_loss = jnp.maximum(v_loss, v_loss_clipped)
+                            
+            return 0.5 * v_loss.mean()
         
         (actor_loss, approx_kl), actor_grad =\
             value_and_grad(actor_loss_fn, has_aux=True)(actor_state.params, mb_obs, mb_actions, mb_logprobs, mb_advantages)
@@ -201,12 +213,8 @@ if __name__ == "__main__":
             dones[step] = next_done
             
             ## calculate actions and values for each step
-            value = rollout_value_fn(critic_state.params, next_obs) # calculate state values accross environments
-            logits = rollout_policy_fn(actor_state.params, next_obs)
-            rng, action_key = jax.random.split(rng)
-            action = jax.random.categorical(action_key, logits)
-            step_log_probs = jax.nn.log_softmax(logits)
-            selected_log_prob = jnp.take_along_axis(step_log_probs, action[:, None], axis=1).squeeze(-1)
+            action, value, selected_log_prob, rng = \
+                calculate_rollout_statistics(actor_state, critic_state, next_obs, rng=rng)
             
             actions[step] = action
             logprobs[step] = selected_log_prob
@@ -216,13 +224,10 @@ if __name__ == "__main__":
             next_obs, reward, terminations, truncations, infos = envs.step(np.array(action))
             next_done = jnp.logical_or(terminations, truncations)
             rewards[step] = reward
-            
-            if "final_info" in infos:
-                for info in infos["final_info"]:
-                    if info and "episode" in info:
-                        print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
-                        writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
-                        writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
+
+            if "episode" in infos:
+                writer.add_scalar("charts/episodic_return", np.array(infos["episode"]["r"]).mean(), global_step)
+                writer.add_scalar("charts/episodic_length", np.array(infos["episode"]["l"]).mean(), global_step)
         next_value = value_fn(critic_state.params, next_obs)
         advantages = np.zeros_like(rewards)
         last_gae_lambda = 0
@@ -254,16 +259,16 @@ if __name__ == "__main__":
         b_values = values.reshape(-1)
 
         b_inds = jnp.arange(args.batch_size)
-        clip_fracs = [] 
+        
         for epoch in range(args.update_epochs):
             rng, batch_key = jax.random.split(rng, 2)
             b_inds = jax.random.permutation(batch_key, b_inds)
             
             for start in range(0, args.batch_size, args.minibatch_size):
                 end = start + args.minibatch_size
+                # prepare minibatch values
                 mb_inds = b_inds[start:end]
                 mb_obs = b_obs[mb_inds]                
-                # Compute gradients and update actor and critic
                 mb_actions = b_actions[mb_inds]
                 mb_logprobs = b_logprobs[mb_inds]
                 mb_advantages = b_advantages[mb_inds]
@@ -277,7 +282,6 @@ if __name__ == "__main__":
         writer.add_scalar("losses/critic_loss", critic_loss.item(), global_step)
         writer.add_scalar("losses/policy_loss", actor_loss.item(), global_step)
         writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
-        writer.add_scalar("charts/returns", returns.mean().item(), global_step)
         if iteration == 1:
             pbar = tqdm(total=args.num_iterations, desc="Training Progress")
         pbar.update(1)
