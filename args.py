@@ -40,7 +40,7 @@ class Args:
     """Toggles advantages normalization"""
     clip_coef: float = 0.2
     """the surrogate clipping coefficient"""
-    clip_vloss: bool = True
+    clip_vloss: bool = False
     """Toggles whether or not to use a clipped loss for the value function, as per the paper."""
     ent_coef: float = 0.01
     """coefficient of the entropy"""
