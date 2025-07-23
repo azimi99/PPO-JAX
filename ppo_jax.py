@@ -27,11 +27,13 @@ from tqdm import tqdm
 import shutil
 
 
-def create_train_state(rng, model, obs_shape, learning_rate, max_grad_norm, num_iterations):
+def create_train_state(rng, model, obs_shape, learning_rate, max_grad_norm, num_iterations, decay_lr):
     params = model.init(rng, jnp.ones(obs_shape))
-
-    lr_schedule = optax.linear_schedule(init_value=learning_rate, end_value=0.1 * learning_rate, transition_steps=num_iterations)
-    tx = optax.chain(optax.clip_by_global_norm(max_grad_norm), optax.adam(lr_schedule))
+    if decay_lr:
+        lr_schedule = optax.linear_schedule(init_value=learning_rate, end_value=0, transition_steps=num_iterations)
+        tx = optax.chain(optax.clip_by_global_norm(max_grad_norm), optax.adam(lr_schedule))
+    else:
+        tx = optax.adam(learning_rate)
     
     return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
@@ -121,7 +123,8 @@ if __name__ == "__main__":
         obs_shape=jnp.array(envs.single_observation_space.shape),
         learning_rate=args.learning_rate,
         num_iterations=args.num_iterations,
-        max_grad_norm=args.max_grad_norm
+        max_grad_norm=args.max_grad_norm,
+        decay_lr=args.decay_lr
     )
     
     actor = Actor(action_dim=envs.single_action_space.n)
@@ -131,7 +134,8 @@ if __name__ == "__main__":
         obs_shape=jnp.array(envs.single_observation_space.shape),
         learning_rate=args.learning_rate, 
         num_iterations=args.num_iterations, # used for scheduling annealing
-        max_grad_norm=args.max_grad_norm
+        max_grad_norm=args.max_grad_norm,
+        decay_lr=args.decay_lr
     )
     
     

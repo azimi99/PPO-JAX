@@ -11,9 +11,10 @@ for ENV in "${ENVIRONMENTS[@]}"; do
             --num_steps=128 \
             --num_envs=8 \
             --update_epochs=10 \
+            --learning_rate=5e-5 \
             --seed=${SEED} \
             --env_name=${ENV} \
             --capture_video \
-            --track
+            --track 
     done
 done

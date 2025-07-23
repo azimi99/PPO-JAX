@@ -50,6 +50,8 @@ class Args:
     """the maximum norm for the gradient clipping"""
     target_kl: float = None
     """the target KL divergence threshold"""
+    decay_lr: bool = False
+    """Reduces learning rate on a schedule"""
 
     
     batch_size: int = 0
