@@ -22,9 +22,9 @@ Check out our experiment results and interactive visualizations below:
 
 ## Technical Writeup
 
-A detailed technical writeup is coming soon.
 
-Cheers!
+A detailed technical write-up for this project is available here:  
+[PPO-JAX Blog Post](https://www.fromscratchdev.io/rl-blog/ppo-jax-post.html)
 
 ## References
 
