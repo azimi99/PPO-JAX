@@ -1,5 +1,5 @@
 ## PPO in JAX
-This is a gymnasium compatible implementation of PPO in JAX. 
+This is a gymnasium-compatible implementation of PPO in JAX. 
 Here are some Gymnasium environments with continuous observation spaces and discrete action spaces suitable for benchmarking this PPO JAX implementation:
 
 - `CartPole-v1`
@@ -8,12 +8,12 @@ Here are some Gymnasium environments with continuous observation spaces and disc
 - `LunarLander-v3`
 
 ## Key Features
-| Feature                         | Description                  | Algorithm                   |
+| Algorithm                   | Feature                         | Description                  |
 |----------------------------------|------------------------------|------------------------------|
-| Action Space Compatibility       | Discrete | `ppo_jax.py` |
-| Environment Space Compatibility  | Continuous |  |
-| Gym Support                     | ✅ | |
-| Cuda Support                     | Coming Soon | |
+|`ppo_jax.py`| Action Space Compatibility       | Discrete |
+|| Environment Space Compatibility  | Continuous |
+|| Gym Support                     | ✅ | |
+|| Cuda Support                     | Coming Soon |
 
 ## Results
 Check out our experiment results and interactive visualizations below:
