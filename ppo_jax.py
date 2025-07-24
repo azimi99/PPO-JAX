@@ -179,7 +179,7 @@ if __name__ == "__main__":
             pg_loss = jnp.minimum(pg_loss1, pg_loss2).mean()
             entropy_loss = entropy.mean()
             approx_kl = ((ratio - 1.0) - log_ratio).mean()
-            return -(pg_loss - args.ent_coef * entropy_loss), approx_kl  # negative for gradient ascent
+            return -(pg_loss + args.ent_coef * entropy_loss), approx_kl  # negative for gradient ascent
         
     
         def critic_loss_fn(params, obs_batch, returns):
@@ -207,7 +207,7 @@ if __name__ == "__main__":
     start_time = time.time()
     next_obs, _ = envs.reset(seed=args.seed)
     next_done = jnp.zeros(args.num_envs)
-        
+    uploade_video_file = []    
     
     for iteration in range(1, args.num_iterations + 1):
         
@@ -296,7 +296,10 @@ if __name__ == "__main__":
             if os.path.exists(video_dir):
                 video_files = [f for f in os.listdir(video_dir) if f.endswith(".mp4")]
                 for video_file in video_files:
-                    wandb.log({"video": wandb.Video(os.path.join(video_dir, video_file), format="mp4")}, step=global_step)
+                    video_path = os.path.join(video_dir, video_file)
+                    if video_path not in uploade_video_file:
+                        wandb.log({"video": wandb.Video(video_path, format="mp4")})
+                        uploade_video_file.append(video_path)
         
     pbar.close()     
     envs.close()
