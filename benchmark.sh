@@ -17,17 +17,17 @@ for ENV in "${ENVIRONMENTS[@]}"; do
             --env_name=${ENV} \
             --capture_video \
             --track 
-        # else
-        #     python ppo_jax.py \
-        #     --tota_timesteps=500_000 \
-        #     --num_steps=128 \
-        #     --num_envs=8 \
-        #     --update_epochs=10 \
-        #     --learning_rate=3e-4 \
-        #     --seed=${SEED} \
-        #     --env_name=${ENV} \
-        #     --capture_video \
-        #     --track 
+        else
+            python ppo_jax.py \
+            --tota_timesteps=500_000 \
+            --num_steps=128 \
+            --num_envs=8 \
+            --update_epochs=10 \
+            --learning_rate=3e-4 \
+            --seed=${SEED} \
+            --env_name=${ENV} \
+            --capture_video \
+            --track 
         fi
     done
 done
