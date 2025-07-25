@@ -21,7 +21,7 @@ import tyro
 # tensorboard logging module
 from torch.utils.tensorboard import SummaryWriter
 # import agent
-from agent import Actor, Critic
+from networks import Actor, Critic
 from tqdm import tqdm
 
 import shutil
@@ -158,7 +158,7 @@ if __name__ == "__main__":
         selected_log_prob = jnp.take_along_axis(step_log_probs, action[:, None], axis=1).squeeze(-1)
         return action, value, selected_log_prob, rng
        
-    
+    @jit
     def train_step(actor_state, critic_state, rollout):
         (mb_obs, mb_actions, mb_logprobs, mb_advantages, mb_returns) = rollout
             
@@ -220,7 +220,7 @@ if __name__ == "__main__":
         return jnp.reshape(data, (num_minibatches, minibatch_size, *data.shape[1:]))
     
     @jit
-    def train_networks(init_state, minibatches):
+    def perform_minibatch_updates(init_state, minibatches):
         def minibatch_step(carry, minibatch):
             actor_state, critic_state = carry
             mb_obs, mb_actions, mb_logprobs, mb_advantages, mb_returns = minibatch
@@ -232,7 +232,7 @@ if __name__ == "__main__":
         (actor_state, critic_state), (actor_loss, critic_loss, approx_kl) \
             = jax.lax.scan(minibatch_step, init_state, minibatches)
         return actor_state, critic_state, actor_loss[-1], critic_loss[-1], approx_kl[-1]
-        
+       
         
     # TRAINING LOOP
     global_step = 0
@@ -290,6 +290,7 @@ if __name__ == "__main__":
 
         b_inds = jnp.arange(args.batch_size)
         
+        
         for epoch in range(args.update_epochs):
             rng, batch_key = jax.random.split(rng, 2)
             b_inds = jax.random.permutation(batch_key, b_inds)
@@ -304,7 +305,7 @@ if __name__ == "__main__":
             # train over minibatches
             init_state = (actor_state, critic_state)
             actor_state, critic_state, actor_loss, critic_loss, approx_kl =\
-                train_networks(init_state, minibatches=minibatches)
+                perform_minibatch_updates(init_state, minibatches=minibatches)
 
             if args.target_kl is not None and approx_kl > args.target_kl:
                 break
