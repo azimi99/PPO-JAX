@@ -116,7 +116,7 @@ if __name__ == "__main__":
     rng = jax.random.PRNGKey(args.seed)
     rng, critic_key, actor_key = jax.random.split(rng, 3)
     
-    critic = Critic()
+    critic = Critic(hidden_layers = (128,128))
     critic_state = create_train_state(
         rng=critic_key,
         model=critic,
@@ -127,7 +127,7 @@ if __name__ == "__main__":
         decay_lr=args.decay_lr
     )
     
-    actor = Actor(action_dim=envs.single_action_space.n)
+    actor = Actor(hidden_layers = (128,128), action_dim=envs.single_action_space.n)
     actor_state = create_train_state(
         rng=actor_key,
         model=actor,
