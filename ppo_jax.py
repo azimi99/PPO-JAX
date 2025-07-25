@@ -71,7 +71,7 @@ if __name__ == "__main__":
         shutil.rmtree(f"runs/{run_name}")
     if os.path.exists(f"videos/{run_name}"):
         shutil.rmtree(f"videos/{run_name}")
-
+    time.sleep(0.1)
     if args.track:
         import wandb
 
@@ -159,7 +159,6 @@ if __name__ == "__main__":
         return action, value, selected_log_prob, rng
        
     
-    @jit
     def train_step(actor_state, critic_state, rollout):
         (mb_obs, mb_actions, mb_logprobs, mb_advantages, mb_returns) = rollout
             
@@ -200,6 +199,39 @@ if __name__ == "__main__":
         critic_state = critic_state.apply_gradients(grads=critic_grad)
         actor_state = actor_state.apply_gradients(grads=actor_grad)
         return actor_state, critic_state, actor_loss, critic_loss, approx_kl
+    
+    @jit
+    def compute_advantages(init_gae_lambda, rollout_values):
+        def advantage_step(last_gae_lambda, rollout_values_t):
+            (reward, value, next_value, next_done) = rollout_values_t
+            td_error =\
+                reward +\
+                    args.gamma * next_value * (1-next_done) -\
+                    value
+            last_gae_lambda = td_error +\
+                args.gamma * args.gae_lambda * (1-next_done) * last_gae_lambda        
+            return last_gae_lambda, last_gae_lambda
+        _, advantages = jax.lax.scan(advantage_step, init_gae_lambda, rollout_values, reverse=True)
+        return advantages
+    
+    
+    def split_minibatches(data, batch_size, minibatch_size):
+        num_minibatches = batch_size // minibatch_size
+        return jnp.reshape(data, (num_minibatches, minibatch_size, *data.shape[1:]))
+    
+    @jit
+    def train_networks(init_state, minibatches):
+        def minibatch_step(carry, minibatch):
+            actor_state, critic_state = carry
+            mb_obs, mb_actions, mb_logprobs, mb_advantages, mb_returns = minibatch
+            actor_state, critic_state, actor_loss, critic_loss, approx_kl = train_step(
+                actor_state, critic_state, 
+                (mb_obs, mb_actions, mb_logprobs, mb_advantages, mb_returns)
+            )
+            return (actor_state, critic_state), (actor_loss, critic_loss, approx_kl)
+        (actor_state, critic_state), (actor_loss, critic_loss, approx_kl) \
+            = jax.lax.scan(minibatch_step, init_state, minibatches)
+        return actor_state, critic_state, actor_loss[-1], critic_loss[-1], approx_kl[-1]
         
         
     # TRAINING LOOP
@@ -236,23 +268,17 @@ if __name__ == "__main__":
         advantages = np.zeros_like(rewards)
         last_gae_lambda = 0
         
-        for t in reversed(range(args.num_steps)):
-            if t == args.num_steps - 1:
-                mask = 1.0 - next_done
-                next_values = next_value
-            else:
-                mask = 1 - dones[t+1]
-                next_values = values[t+1]
-            
-            td_error =\
-                rewards[t] +\
-                    args.gamma * next_values * mask -\
-                    values[t]
-            last_gae_lambda = td_error +\
-                args.gamma * args.gae_lambda * mask * last_gae_lambda        
-            advantages[t] = last_gae_lambda
-        returns = advantages + values
+        ## Compute GAE
+        next_values = np.concatenate([values[1:], next_value[None, :]], axis=0)
+        next_dones = np.concatenate([dones[1:], next_done[None, :]], axis=0)
 
+        rollout_values = (rewards, values, next_values, next_dones)
+        init_gae_lambda = jnp.zeros_like(rewards[0])
+
+        jnp_advantages = compute_advantages(init_gae_lambda, rollout_values)
+        advantages = np.asarray(jnp_advantages) 
+        
+        returns = advantages + values
         
         # flatten rollout values for batching
         b_obs = obs.reshape((-1,) + envs.single_observation_space.shape)
@@ -268,18 +294,18 @@ if __name__ == "__main__":
             rng, batch_key = jax.random.split(rng, 2)
             b_inds = jax.random.permutation(batch_key, b_inds)
             
-            for start in range(0, args.batch_size, args.minibatch_size):
-                end = start + args.minibatch_size
-                # prepare minibatch values
-                mb_inds = b_inds[start:end]
-                mb_obs = b_obs[mb_inds]                
-                mb_actions = b_actions[mb_inds]
-                mb_logprobs = b_logprobs[mb_inds]
-                mb_advantages = b_advantages[mb_inds]
-                mb_returns = b_returns[mb_inds]
-                actor_state, critic_state, actor_loss, critic_loss, approx_kl =\
-                    train_step(actor_state, critic_state,\
-                        (mb_obs, mb_actions, mb_logprobs, mb_advantages, mb_returns))
+            # split batch of data into minibatches
+            mb_obs = split_minibatches(b_obs[b_inds], args.batch_size, args.minibatch_size)
+            mb_actions = split_minibatches(b_actions[b_inds], args.batch_size, args.minibatch_size)
+            mb_logprobs = split_minibatches(b_logprobs[b_inds], args.batch_size, args.minibatch_size)
+            mb_advantages = split_minibatches(b_advantages[b_inds], args.batch_size, args.minibatch_size)
+            mb_returns = split_minibatches(b_returns[b_inds], args.batch_size, args.minibatch_size)
+            minibatches = (mb_obs, mb_actions, mb_logprobs, mb_advantages, mb_returns)
+            # train over minibatches
+            init_state = (actor_state, critic_state)
+            actor_state, critic_state, actor_loss, critic_loss, approx_kl =\
+                train_networks(init_state, minibatches=minibatches)
+
             if args.target_kl is not None and approx_kl > args.target_kl:
                 break
        
