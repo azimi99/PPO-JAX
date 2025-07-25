@@ -16,7 +16,7 @@ def layer_init(scale=1.0):
 class Actor(nn.Module):
     action_dim: int
     hidden_layers: Tuple[int,...] = field(default_factory=lambda: (64, 64))
-    activation_fn: Callable = field(nn.tanh)
+    activation_fn: Callable = nn.tanh
     
     @nn.compact
     def __call__(self, x):
@@ -30,7 +30,7 @@ class Actor(nn.Module):
         
 class Critic(nn.Module):
     hidden_layers: Tuple[int,...] = field(default_factory=lambda: (64, 64))
-    activation_fn: Callable = field(nn.tanh)
+    activation_fn: Callable = nn.tanh
     
     @nn.compact
     def __call__(self, x):
