@@ -16,15 +16,12 @@ from flax.training import train_state
 
 # Optax for optimization
 import optax
-# command line tool
-import tyro
+
 # tensorboard logging module
 from torch.utils.tensorboard import SummaryWriter
 # import agent
-from networks import Actor, Critic
+from networks.mlp import Actor, Critic
 from tqdm import tqdm
-
-import shutil
 
 
 def create_train_state(rng, model, obs_shape, learning_rate, max_grad_norm, num_iterations, decay_lr):
@@ -38,39 +35,11 @@ def create_train_state(rng, model, obs_shape, learning_rate, max_grad_norm, num_
     return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
 
-def make_env(env_name, idx, capture_video, run_name):
-    """
-    Creates a thunk (function with no arguments) that initializes a Gym environment with optional video recording and episode statistics recording.
-    Args:
-        env_name (str): The environment ID to create (as per Gym registry).
-        idx (int): The index of the environment (used to determine if video should be captured).
-        capture_video (bool): Whether to capture video for the environment (only for idx == 0).
-        run_name (str): The name of the run, used to organize video output directories.
-    Returns:
-        function: A thunk that, when called, returns the initialized Gym environment.
-    Note:
-        This function is taken from the CleanRL library.
-    """
-    
-    def thunk():
-        if capture_video and idx == 0:
-            env = gym.make(env_name, render_mode="rgb_array")
-            env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
-        else:
-            env = gym.make(env_name)
-        env = gym.wrappers.RecordEpisodeStatistics(env)
-        return env
 
-    return thunk
-    
-if __name__ == "__main__":
-    # Create environment and experiment setup
-    args = tyro.cli(Args)
-    run_name = f"{args.env_name}_seed_{args.seed}"
-    if os.path.exists(f"runs/{run_name}"):
-        shutil.rmtree(f"runs/{run_name}")
-    if os.path.exists(f"videos/{run_name}"):
-        shutil.rmtree(f"videos/{run_name}")
+def train(args, envs, run_name):
+    if not run_name: # if not specified
+        run_name = f"{args.env_name}_seed_{args.seed}"
+
     time.sleep(0.1)
     if args.track:
         import wandb
@@ -90,11 +59,7 @@ if __name__ == "__main__":
     random.seed(args.seed)
     np.random.seed(args.seed)
     
-    # env setup
-    envs = gym.vector.SyncVectorEnv(
-        [make_env(args.env_name, i, args.capture_video, run_name) for i in range(args.num_envs)],
-    )
-    
+
     assert isinstance(envs.single_action_space, gym.spaces.Discrete)
     
     # calculate batch_size, minibatch_size, num_iterations
@@ -109,9 +74,7 @@ if __name__ == "__main__":
     rewards = np.zeros((args.num_steps, args.num_envs))
     dones = np.zeros((args.num_steps, args.num_envs))
     values = np.zeros((args.num_steps, args.num_envs))
-    
-    
-    
+      
     # AGENT STATE
     rng = jax.random.PRNGKey(args.seed)
     rng, critic_key, actor_key = jax.random.split(rng, 3)
@@ -266,7 +229,6 @@ if __name__ == "__main__":
                 writer.add_scalar("charts/episodic_length", np.array(infos["episode"]["l"]).mean(), global_step)
         next_value = value_fn(critic_state.params, next_obs)
         advantages = np.zeros_like(rewards)
-        last_gae_lambda = 0
         
         ## Compute GAE
         next_values = np.concatenate([values[1:], next_value[None, :]], axis=0)
@@ -286,7 +248,6 @@ if __name__ == "__main__":
         b_logprobs = logprobs.reshape(-1)
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
-        b_values = values.reshape(-1)
 
         b_inds = jnp.arange(args.batch_size)
         
@@ -332,6 +293,8 @@ if __name__ == "__main__":
     envs.close()
     if args.track:
         wandb.finish()
-    writer.close()    
+    writer.close()
+    return actor_state, critic_state    
+    
    
         
