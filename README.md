@@ -16,7 +16,7 @@ Here are some Gymnasium environments with continuous observation spaces and disc
 || Cuda Support                     | Coming Soon |
 
 ## Results
-Check out our experiment results and interactive visualizations below:
+Check out benchmark results and interactive visualizations below:
 
 [Experiment Report & Visualizations](https://wandb.ai/azimi/ppo%20jax/reports/Results-from-PPO-JAX--VmlldzoxMzY3OTMxNg?accessToken=otlcvfgm3a53jfkwmh0owf3cxwe79603airegk60uxlol0ecl93mb3vb35kn0rps)
 
