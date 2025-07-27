@@ -10,6 +10,7 @@ class Args:
     wandb_project_name: str = "ppo jax"
     wandb_entity: str = None # wandb team
     capture_video: bool = False # render environment frames
+    checkpoint: int = None # save checkpoint every x time step
 
     """Algorithm specific arguments"""
     env_name: str = "CartPole-v1"

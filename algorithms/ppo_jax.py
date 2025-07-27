@@ -13,6 +13,7 @@ from jax import jit, value_and_grad
 
 # Flax for model and state
 from flax.training import train_state
+from flax.training import checkpoints
 
 # Optax for optimization
 import optax
@@ -36,11 +37,10 @@ def create_train_state(rng, model, obs_shape, learning_rate, max_grad_norm, num_
 
 
 
-def train(args, envs, run_name):
+def train(args, envs, run_name, call_back=lambda: None):
     if not run_name: # if not specified
         run_name = f"{args.env_name}_seed_{args.seed}"
 
-    time.sleep(0.1)
     if args.track:
         import wandb
 
@@ -85,8 +85,8 @@ def train(args, envs, run_name):
         model=critic,
         obs_shape=jnp.array(envs.single_observation_space.shape),
         learning_rate=args.learning_rate,
-        num_iterations=args.num_iterations,
-        max_grad_norm=args.max_grad_norm,
+        num_iterations=args.num_iterations, # for scheduling learning rate
+        max_grad_norm=args.max_grad_norm, # for gradient clipping
         decay_lr=args.decay_lr
     )
     
@@ -111,12 +111,16 @@ def train(args, envs, run_name):
     def policy_fn(params, obs):
         return jax.vmap(lambda x: actor_state.apply_fn(params, x))(obs)
     
+    
+    def inference_fn(params, obs, rng):
+        rng, action_key = jax.random.split(rng)
+        logits = policy_fn(params, obs)
+        action = jax.random.categorical(action_key, logits)
+        return logits, action, rng
     @jit
     def calculate_rollout_statistics(actor_state, critic_state, next_obs, rng):
         value = value_fn(critic_state.params, next_obs) # calculate state values accross environments
-        logits = policy_fn(actor_state.params, next_obs)
-        rng, action_key = jax.random.split(rng)
-        action = jax.random.categorical(action_key, logits)
+        logits, action, rng = inference_fn(actor_state.params, next_obs, rng=rng)
         step_log_probs = jax.nn.log_softmax(logits)
         selected_log_prob = jnp.take_along_axis(step_log_probs, action[:, None], axis=1).squeeze(-1)
         return action, value, selected_log_prob, rng
@@ -270,7 +274,23 @@ def train(args, envs, run_name):
 
             if args.target_kl is not None and approx_kl > args.target_kl:
                 break
-       
+        
+        # save checkpint 
+        if args.checkpoint and iteration % args.checkpoint == 0:
+            checkpoints.save_checkpoint(
+                 ckpt_dir=os.path.abspath("./checkpoints/actor"),
+                 target=actor_state,
+                 step=iteration,
+                 prefix="actor_",
+                 overwrite=True
+            )    
+            checkpoints.save_checkpoint(
+                    ckpt_dir=os.path.abspath("./checkpoints/critic"),
+                    target=critic_state,
+                    step=iteration,
+                    prefix="critic_",
+                    overwrite=True
+            )
         writer.add_scalar("losses/critic_loss", critic_loss.item(), global_step)
         writer.add_scalar("losses/policy_loss", actor_loss.item(), global_step)
         writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
