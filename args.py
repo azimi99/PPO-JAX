@@ -11,6 +11,7 @@ class Args:
     wandb_entity: str = None # wandb team
     capture_video: bool = False # render environment frames
     checkpoint: int = None # save checkpoint every x time step
+    vision: bool = False # train from vision observation
 
     """Algorithm specific arguments"""
     env_name: str = "CartPole-v1"

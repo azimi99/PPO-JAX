@@ -38,6 +38,14 @@ def create_train_state(rng, model, obs_shape, learning_rate, max_grad_norm, num_
 
 
 def train(args, envs, run_name, call_back=lambda: None):
+    if args.vision:
+        # TODO: Training from vision
+        raise NotImplementedError("Vision-based environments are not implemented yet.") 
+    else:
+        from networks.mlp import Actor, Critic
+        critic = Critic(hidden_layers = [128,128])
+        actor = Actor(hidden_layers = [128,128], action_dim=envs.single_action_space.n)
+        
     if not run_name: # if not specified
         run_name = f"{args.env_name}_seed_{args.seed}"
 
@@ -67,19 +75,12 @@ def train(args, envs, run_name, call_back=lambda: None):
     args.minibatch_size = int(args.batch_size // args.num_minibatches) # e.g. 512 // 4 = 128
     args.num_iterations = args.total_timesteps // args.batch_size # e.g. 500_000 // 512 = 976
     
-    # rollout values
-    obs = np.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape)
-    actions = np.zeros((args.num_steps, args.num_envs) + envs.single_action_space.shape)
-    logprobs = np.zeros((args.num_steps, args.num_envs))
-    rewards = np.zeros((args.num_steps, args.num_envs))
-    dones = np.zeros((args.num_steps, args.num_envs))
-    values = np.zeros((args.num_steps, args.num_envs))
+
       
     # AGENT STATE
     rng = jax.random.PRNGKey(args.seed)
     rng, critic_key, actor_key = jax.random.split(rng, 3)
     
-    critic = Critic(hidden_layers = (128,128))
     critic_state = create_train_state(
         rng=critic_key,
         model=critic,
@@ -90,7 +91,6 @@ def train(args, envs, run_name, call_back=lambda: None):
         decay_lr=args.decay_lr
     )
     
-    actor = Actor(hidden_layers = (128,128), action_dim=envs.single_action_space.n)
     actor_state = create_train_state(
         rng=actor_key,
         model=actor,
@@ -199,7 +199,14 @@ def train(args, envs, run_name, call_back=lambda: None):
         (actor_state, critic_state), (actor_loss, critic_loss, approx_kl) \
             = jax.lax.scan(minibatch_step, init_state, minibatches)
         return actor_state, critic_state, actor_loss[-1], critic_loss[-1], approx_kl[-1]
-       
+    
+    # rollout values
+    obs = np.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape)
+    actions = np.zeros((args.num_steps, args.num_envs) + envs.single_action_space.shape)
+    logprobs = np.zeros((args.num_steps, args.num_envs))
+    rewards = np.zeros((args.num_steps, args.num_envs))
+    dones = np.zeros((args.num_steps, args.num_envs))
+    values = np.zeros((args.num_steps, args.num_envs))
         
     # TRAINING LOOP
     global_step = 0
